@@ -139,8 +139,23 @@ class POSTagger():
         Tip. Map each tag to an integer and each word in the vocabulary to an integer. 
              Then create a numpy array such that lexical[index(tag), index(word)] = Prob(word|tag) 
         """
-        ## TODO
-        pass  
+        words, tags = self.data
+        num_docs = len(words)
+        len_vocab = len(self.vocabulary)
+        num_tags = len(self.all_tags)
+        emissions = np.zeros([num_tags, len_vocab])
+
+        for i in range(num_docs):
+            sentence_words = words[i]
+            sentence_tags = tags[i]
+            for j in range(len(sentence_words)):
+                word = sentence_words[j]
+                tag = sentence_tags[j]
+                emissions[self.tag2idx[tag]][self.word2idx[word]] += 1
+
+        emissions = emissions / emissions.sum(axis=1)[:, None]
+        return emissions
+
     
 
     def train(self, data):
@@ -155,6 +170,10 @@ class POSTagger():
         self.all_tags = list(set([t for tag in data[1] for t in tag]))
         self.tag2idx = {self.all_tags[i]:i for i in range(len(self.all_tags))}
         self.idx2tag = {v:k for k,v in self.tag2idx.items()}
+        self.vocabulary = list(set(word for sentence in data[0] for word in sentence))
+        self.word2idx = {self.vocabulary[i]: i for i in range(len(self.vocabulary))}
+        self.transition = self.get_bigrams()
+        self.emission = self.get_emissions()
 
 
     def sequence_probability(self, sequence, tags):
