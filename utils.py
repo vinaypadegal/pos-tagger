@@ -3,7 +3,7 @@ from tqdm import tqdm
 import numpy as np
 import seaborn as sn
 import matplotlib.pyplot as plt
-from constants import *
+from myconstants import *
 
 
 def infer_sentences(model, sentences, start):

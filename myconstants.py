@@ -17,12 +17,6 @@ LAPLACE = 0; LAPLACE_FACTOR = .2
 INTERPOLATION = 1; LAMBDAS =  None
 SMOOTHING = INTERPOLATION
 
-### Append stop word ###
-STOP_WORD = True
-
-### Capitalization
-CAPITALIZATION = True
-
 # NGRAMM
 NGRAMM = 3
 

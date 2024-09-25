@@ -90,8 +90,15 @@ class POSTagger():
         Computes unigrams. 
         Tip. Map each tag to an integer and store the unigrams in a numpy array. 
         """
-        ## TODO
-        pass
+        tag_sentences = self.data[1]
+        num_tags = len(self.all_tags)
+        unigrams = np.zeros(num_tags)
+        for tag_sent in tag_sentences:
+            for tag in tag_sent:
+                unigrams[self.tag2idx[tag]] += 1
+        unigrams = unigrams / sum(unigrams)
+        return unigrams
+
 
     def get_bigrams(self):        
         """
@@ -99,8 +106,23 @@ class POSTagger():
         Tip. Map each tag to an integer and store the bigrams in a numpy array
              such that bigrams[index[tag1], index[tag2]] = Prob(tag2|tag1). 
         """
-        ## TODO
-        pass
+        tag_sentences = self.data[1]
+        num_tags = len(self.all_tags)
+        bigrams = np.zeros([num_tags, num_tags])
+        for tag_sent in tag_sentences:
+            sentence_length = len(tag_sent)
+            for i in range(sentence_length - 1):
+                tag1 = tag_sent[i]
+                tag2 = tag_sent[i+1]
+                bigrams[self.tag2idx[tag1]][self.tag2idx[tag2]] += 1
+
+        for i in range(len(bigrams)):
+            rowsum = sum(bigrams[i])
+            if rowsum > 0:
+                bigrams[i] = bigrams[i] / rowsum
+
+        return bigrams
+
     
     def get_trigrams(self):
         """
@@ -133,8 +155,7 @@ class POSTagger():
         self.all_tags = list(set([t for tag in data[1] for t in tag]))
         self.tag2idx = {self.all_tags[i]:i for i in range(len(self.all_tags))}
         self.idx2tag = {v:k for k,v in self.tag2idx.items()}
-        ## TODO
-        pass
+
 
     def sequence_probability(self, sequence, tags):
         """Computes the probability of a tagged sequence given the emission/transition
@@ -166,16 +187,16 @@ if __name__ == "__main__":
 
     pos_tagger.train(train_data)
 
-    # Experiment with your decoder using greedy decoding, beam search, viterbi...
+    # # Experiment with your decoder using greedy decoding, beam search, viterbi...
 
-    # Here you can also implement experiments that compare different styles of decoding,
-    # smoothing, n-grams, etc.
-    evaluate(dev_data, pos_tagger)
+    # # Here you can also implement experiments that compare different styles of decoding,
+    # # smoothing, n-grams, etc.
+    # evaluate(dev_data, pos_tagger)
 
-    # Predict tags for the test set
-    test_predictions = []
-    for sentence in test_data:
-        test_predictions.extend(pos_tagger.inference(sentence))
+    # # Predict tags for the test set
+    # test_predictions = []
+    # for sentence in test_data:
+    #     test_predictions.extend(pos_tagger.inference(sentence))
     
-    # Write them to a file to update the leaderboard
-    # TODO
+    # # Write them to a file to update the leaderboard
+    # # TODO
