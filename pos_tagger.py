@@ -116,7 +116,7 @@ class POSTagger():
                 tag2 = tag_sent[i+1]
                 bigrams[self.tag2idx[tag1]][self.tag2idx[tag2]] += 1
 
-        for i in range(len(bigrams)):
+        for i in range(num_tags):
             rowsum = sum(bigrams[i])
             if rowsum > 0:
                 bigrams[i] = bigrams[i] / rowsum
@@ -129,8 +129,24 @@ class POSTagger():
         Computes trigrams. 
         Tip. Similar logic to unigrams and bigrams. Store in numpy array. 
         """
-        ## TODO
-        pass
+        tag_sentences = self.data[1]
+        num_tags = len(self.all_tags)
+        trigrams = np.zeros([num_tags, num_tags, num_tags])
+        for tag_sent in tag_sentences:
+            sentence_length = len(tag_sent)
+            for i in range(sentence_length - 2):
+                tag1 = tag_sent[i]
+                tag2 = tag_sent[i+1]
+                tag3 = tag_sent[i+2]
+                trigrams[self.tag2idx[tag1]][self.tag2idx[tag2]][self.tag2idx[tag3]] += 1
+
+        for i in range(num_tags):
+            for j in range(num_tags):
+                rowsum = sum(trigrams[i][j])
+                if rowsum > 0:
+                    trigrams[i][j] = trigrams[i][j] / rowsum
+
+        return trigrams
     
     
     def get_emissions(self):
@@ -172,7 +188,7 @@ class POSTagger():
         self.idx2tag = {v:k for k,v in self.tag2idx.items()}
         self.vocabulary = list(set(word for sentence in data[0] for word in sentence))
         self.word2idx = {self.vocabulary[i]: i for i in range(len(self.vocabulary))}
-        self.transition = self.get_bigrams()
+        self.transition = self.get_trigrams()
         self.emission = self.get_emissions()
 
 
