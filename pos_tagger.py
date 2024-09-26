@@ -2,7 +2,7 @@ from multiprocessing import Pool
 import numpy as np
 import time
 from utils import *
-
+import sys
 
 
 """ Contains the part of speech tagger class. """
@@ -192,14 +192,32 @@ class POSTagger():
         self.emission = self.get_emissions()
 
 
+
     def sequence_probability(self, sequence, tags):
         """Computes the probability of a tagged sequence given the emission/transition
         probabilities.
         """
-        ## TODO
-        return 0.
+        n = len(sequence)
+        score = 1
+        for i in range(1,n):
+            score *= self.transition[self.tag2idx[tags[i-1]],self.tag2idx[tags[i]]] * self.emission[self.tag2idx[tags[i]],self.word2idx.get(sequence[i], -1)]
+        
+        return score
+        
+    def sequence_probability_part(self, current_score, current_tag, next_tag, word):
+        """Computes the probability of a tagged sequence given the emission/transition
+        probabilities.
+        """
+        
+        # Transition probability from the current tag to the next tag
+        transition_prob = self.transition[self.tag2idx[current_tag],self.tag2idx[next_tag]]
+        # Emission probability for the next tag given the current word, returns -1 if word not in vocab 
+        emission_prob = self.emission[self.tag2idx[next_tag],self.word2idx.get(word, -1)]
+        
+        # Update the score
+        return current_score * transition_prob * emission_prob
 
-    def inference(self, sequence):
+    def inference(self, sequence,k=3):
         """Tags a sequence with part of speech tags.
 
         You should implement different kinds of inference (suggested as separate
@@ -209,8 +227,42 @@ class POSTagger():
             - decoding with beam search
             - viterbi
         """
-        ## TODO
-        return []
+        # Implemented k beams below
+        n = len(sequence)
+        # Initialize the beam with the only possible tag for the first word and a score of 1
+        beam = [(["O"],1)]
+        
+
+        # For each subsequent word in the sequence
+        for t in range(1, n):
+            new_beam = []
+            
+            # For each tag sequence in the current beam
+            for tags, score in beam:
+                last_tag = tags[-1]
+
+                # Find transition probabilities to all next tags
+                transition_probs = [
+                    (next_tag, self.transition[self.tag2idx[last_tag],self.tag2idx[next_tag]])
+                    for next_tag in self.all_tags
+                ]
+                # Get the k highest transitions
+                best_transitions = sorted(transition_probs, key=lambda x: x[1], reverse=True)[:k]
+
+                # Calculate scores for the top k next tags
+                for next_tag, transition_prob in best_transitions:
+                    # Call the scoring function to get the new score
+                    new_score = self.sequence_probability_part(score, last_tag, next_tag, sequence[t])
+                    
+                    # Create new tag sequence
+                    new_tags = tags + [next_tag]
+                    new_beam.append((new_tags, new_score))
+
+            # At every step keep only the k best tag sequences
+            beam = sorted(new_beam, key=lambda x: x[1], reverse=True)[:k]
+
+        # Return the tag sequence with the highest probability
+        return beam[0][0]
 
 
 if __name__ == "__main__":
@@ -219,19 +271,20 @@ if __name__ == "__main__":
     train_data = load_data("data/train_x.csv", "data/train_y.csv")
     dev_data = load_data("data/dev_x.csv", "data/dev_y.csv")
     test_data = load_data("data/test_x.csv")
-
     pos_tagger.train(train_data)
 
     # # Experiment with your decoder using greedy decoding, beam search, viterbi...
 
     # # Here you can also implement experiments that compare different styles of decoding,
     # # smoothing, n-grams, etc.
-    # evaluate(dev_data, pos_tagger)
+    evaluate(dev_data, pos_tagger)
 
     # # Predict tags for the test set
-    # test_predictions = []
-    # for sentence in test_data:
-    #     test_predictions.extend(pos_tagger.inference(sentence))
+    test_predictions = []
+    for sentence in test_data:
+        test_predictions.extend(pos_tagger.inference(sentence))
     
     # # Write them to a file to update the leaderboard
-    # # TODO
+    test_predictions = pd.DataFrame(test_predictions)
+    test_predictions.to_csv("test_predictions.csv", index=False, header=False)
+    
