@@ -2,8 +2,10 @@ from multiprocessing import Pool
 import numpy as np
 import time
 from utils import *
-from myconstants import *
 
+import sys
+import csv
+from myconstants import *
 
 
 """ Contains the part of speech tagger class. """
@@ -56,8 +58,21 @@ def evaluate(data, model):
     print(f"Probability Estimation Runtime: {(time.time()-start)/60} minutes.")
 
 
+    if len(predictions) == len(tags):
+        flag = 0
+        for i in range(len(tags)):
+            if len(predictions[i]) != len(tags[i]):
+                print("Error: Predictions and tags have different lengths for i - ", i)
+                flag = 1 
+                print(tags[i][len(tags[i])-1])
+        if flag == 1:
+            return
+    else:
+        print("Error: Predictions and tags have different lengths.")
+        return
+
     token_acc = sum([1 for i in range(n) for j in range(len(sentences[i])) if tags[i][j] == predictions[i][j]]) / n_tokens
-    unk_token_acc = sum([1 for i in range(n) for j in range(len(sentences[i])) if tags[i][j] == predictions[i][j] and sentences[i][j] not in model.word2idx.keys()]) / unk_n_tokens
+    # unk_token_acc = sum([1 for i in range(n) for j in range(len(sentences[i])) if tags[i][j] == predictions[i][j] and sentences[i][j] not in model.word2idx.keys()]) / unk_n_tokens
     whole_sent_acc = 0
     num_whole_sent = 0
     for k in range(n):
@@ -73,7 +88,7 @@ def evaluate(data, model):
     print("Whole sent acc: {}".format(whole_sent_acc/num_whole_sent))
     print("Mean Probabilities: {}".format(sum(probabilities.values())/n))
     print("Token acc: {}".format(token_acc))
-    print("Unk token acc: {}".format(unk_token_acc))
+    # print("Unk token acc: {}".format(unk_token_acc))
     
     confusion_matrix(pos_tagger.tag2idx, pos_tagger.idx2tag, predictions.values(), tags, 'cm.png')
 
@@ -202,12 +217,59 @@ class POSTagger():
         self.emission = self.get_emissions()
 
 
+
     def sequence_probability(self, sequence, tags):
         """Computes the probability of a tagged sequence given the emission/transition
         probabilities.
         """
-        ## TODO
-        return 0.
+        n = len(sequence)
+        score = 1
+        for i in range(1,n):
+            score *= self.transition[self.tag2idx[tags[i-1]],self.tag2idx[tags[i]]] * self.emission[self.tag2idx[tags[i]],self.word2idx.get(sequence[i], -1)]
+        
+        return score
+    
+    def beam_search(self, sequence, k=20):
+        
+        n = len(sequence)
+        
+        # Initialize the beam with the  possible tags for the first word, possible scores
+        beam = [([tag], self.emission[self.tag2idx[tag],self.word2idx.get(sequence[0], -1)]) for tag in self.all_tags]
+        beam = sorted(beam, key=lambda x: x[1], reverse=True)[:k]
+        
+
+        # For each subsequent word in the sequence, note : n-1 to avoid <STOP> tag
+        for t in range(1, n-1):
+            new_beam = []
+            
+            # For each tag sequence in the current beam
+            for tags, score in beam:
+                last_tag = tags[-1]
+
+                # Find transition * emission probabilities to all next tags
+                next_tag_probs = [
+                    (next_tag, self.transition[self.tag2idx[last_tag],self.tag2idx[next_tag]] * self.emission[self.tag2idx[next_tag],self.word2idx.get(sequence[t], -1)])
+                    for next_tag in self.all_tags
+                ]
+                
+                # Choose the top k next tags based on transition * emission probabilities
+                best_next_tags = sorted(next_tag_probs, key=lambda x: x[1], reverse=True)[:k]
+                
+                # Calculate scores for the top k next tags by multiplying with the current score 
+                for next_tag, total_prob in best_next_tags:
+                    
+                    # Create new tag sequence
+                    new_tags = tags + [next_tag]
+                    new_beam.append((new_tags, score * total_prob))
+
+            # At every step keep only the k best tag sequences
+            beam = sorted(new_beam, key=lambda x: x[1], reverse=True)[:k]
+
+        # Return the tag sequence with the highest probability
+        highest_prob = beam[0][0]
+        highest_prob.append('<STOP>') # Appending stop as the last tag of the sentence
+        return highest_prob
+        
 
     def inference(self, sequence):
         """Tags a sequence with part of speech tags.
@@ -219,8 +281,14 @@ class POSTagger():
             - decoding with beam search
             - viterbi
         """
-        ## TODO
-        return []
+        # Call k beams below
+        k =20
+        beam_search_seq = self.beam_search(sequence, k)
+        
+        return beam_search_seq
+        
+        
+      
 
 
 if __name__ == "__main__":
@@ -229,19 +297,27 @@ if __name__ == "__main__":
     train_data = load_data("data/train_x.csv", "data/train_y.csv")
     dev_data = load_data("data/dev_x.csv", "data/dev_y.csv")
     test_data = load_data("data/test_x.csv")
-
+    dev2_data = load_data("data/dev2_x.csv", "data/dev2_y.csv")
     pos_tagger.train(train_data)
 
     # # Experiment with your decoder using greedy decoding, beam search, viterbi...
 
     # # Here you can also implement experiments that compare different styles of decoding,
     # # smoothing, n-grams, etc.
-    # evaluate(dev_data, pos_tagger)
-
-    # # Predict tags for the test set
-    # test_predictions = []
-    # for sentence in test_data:
-    #     test_predictions.extend(pos_tagger.inference(sentence))
     
-    # # Write them to a file to update the leaderboard
-    # # TODO
+    
+    evaluate(dev_data, pos_tagger)
+    
+
+    # Predict tags for the test set
+    # test_predictions = []
+    # for sentence in tqdm(test_data):
+        
+    #     test_predictions.extend(pos_tagger.inference(sentence)[:-1])
+        
+    # # print(len(test_predictions))
+    
+    # # # # Write them to a file to update the leaderboard
+    # test_predictions = pd.DataFrame(test_predictions)
+    # test_predictions.to_csv("dev2_predictions.csv", index=True,index_label=['id'], header=['tag'],quoting=csv.QUOTE_NONNUMERIC)
+    
