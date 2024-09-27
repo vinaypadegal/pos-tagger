@@ -6,6 +6,9 @@ CAPITALIZATION = True
 ### small number
 EPSILON = 1e-100
 
+## smoothing constants
+SMOOTHING_K = 0.6
+
 ### Inference Types ###
 GREEDY = 0
 BEAM = 1; BEAM_K = 2

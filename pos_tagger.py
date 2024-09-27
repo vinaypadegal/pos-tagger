@@ -2,6 +2,7 @@ from multiprocessing import Pool
 import numpy as np
 import time
 from utils import *
+from myconstants import *
 
 
 
@@ -83,6 +84,15 @@ class POSTagger():
     def __init__(self):
         """Initializes the tagger model parameters and anything else necessary. """
         pass
+
+    def add_k_smoothing(self, row, k):
+        rowsum = sum(row)
+        row = (row + k) / (rowsum + k*len(row))
+        return row
+
+
+    def add_1_smoothing(self, row):
+         return self.add_k_smoothing(row, 1)
     
     
     def get_unigrams(self):
@@ -96,7 +106,8 @@ class POSTagger():
         for tag_sent in tag_sentences:
             for tag in tag_sent:
                 unigrams[self.tag2idx[tag]] += 1
-        unigrams = unigrams / sum(unigrams)
+        
+        unigrams = self.add_k_smoothing(unigrams, SMOOTHING_K)
         return unigrams
 
 
@@ -115,11 +126,12 @@ class POSTagger():
                 tag1 = tag_sent[i]
                 tag2 = tag_sent[i+1]
                 bigrams[self.tag2idx[tag1]][self.tag2idx[tag2]] += 1
+        print(bigrams)
 
         for i in range(num_tags):
-            rowsum = sum(bigrams[i])
-            if rowsum > 0:
-                bigrams[i] = bigrams[i] / rowsum
+            bigrams[i] = self.add_k_smoothing(bigrams[i], SMOOTHING_K)
+
+        print(bigrams)
 
         return bigrams
 
@@ -142,9 +154,7 @@ class POSTagger():
 
         for i in range(num_tags):
             for j in range(num_tags):
-                rowsum = sum(trigrams[i][j])
-                if rowsum > 0:
-                    trigrams[i][j] = trigrams[i][j] / rowsum
+                trigrams[i][j] = self.add_k_smoothing(trigrams[i][j], SMOOTHING_K)
 
         return trigrams
     
@@ -188,7 +198,7 @@ class POSTagger():
         self.idx2tag = {v:k for k,v in self.tag2idx.items()}
         self.vocabulary = list(set(word for sentence in data[0] for word in sentence))
         self.word2idx = {self.vocabulary[i]: i for i in range(len(self.vocabulary))}
-        self.transition = self.get_trigrams()
+        self.transition = self.get_bigrams()
         self.emission = self.get_emissions()
 
 
