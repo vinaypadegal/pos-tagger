@@ -72,7 +72,7 @@ def evaluate(data, model):
         return
 
     token_acc = sum([1 for i in range(n) for j in range(len(sentences[i])) if tags[i][j] == predictions[i][j]]) / n_tokens
-    # unk_token_acc = sum([1 for i in range(n) for j in range(len(sentences[i])) if tags[i][j] == predictions[i][j] and sentences[i][j] not in model.word2idx.keys()]) / unk_n_tokens
+    unk_token_acc = sum([1 for i in range(n) for j in range(len(sentences[i])) if tags[i][j] == predictions[i][j] and sentences[i][j] not in model.word2idx.keys()]) / unk_n_tokens
     whole_sent_acc = 0
     num_whole_sent = 0
     for k in range(n):
@@ -88,7 +88,7 @@ def evaluate(data, model):
     print("Whole sent acc: {}".format(whole_sent_acc/num_whole_sent))
     print("Mean Probabilities: {}".format(sum(probabilities.values())/n))
     print("Token acc: {}".format(token_acc))
-    # print("Unk token acc: {}".format(unk_token_acc))
+    print("Unk token acc: {}".format(unk_token_acc))
     
     confusion_matrix(pos_tagger.tag2idx, pos_tagger.idx2tag, predictions.values(), tags, 'cm.png')
 
@@ -141,12 +141,9 @@ class POSTagger():
                 tag1 = tag_sent[i]
                 tag2 = tag_sent[i+1]
                 bigrams[self.tag2idx[tag1]][self.tag2idx[tag2]] += 1
-        print(bigrams)
 
         for i in range(num_tags):
             bigrams[i] = self.add_k_smoothing(bigrams[i], SMOOTHING_K)
-
-        print(bigrams)
 
         return bigrams
 
@@ -229,6 +226,7 @@ class POSTagger():
         
         return score
     
+
     def beam_search(self, sequence, k=20):
         
         n = len(sequence)
@@ -269,6 +267,45 @@ class POSTagger():
         highest_prob = beam[0][0]
         highest_prob.append('<STOP>') # Appending stop as the last tag of the sentence
         return highest_prob
+    
+
+    def bigram_viterbi(self, sentence):
+        n = len(sentence)
+        num_tags = len(self.all_tags)
+        lattice = np.zeros([num_tags, n])
+        backpointers = np.zeros([num_tags, n], dtype=int)
+
+        # settings the first column to be <START> with probability 1
+        lattice[self.tag2idx['O'], 0] = 1
+
+        for k in range(1, n):
+            for j in range(num_tags):
+                max_prob = -1
+                bp = -1
+                for i in range(num_tags):
+                    word_idx = self.word2idx.get(sentence[k], -1)
+                    prob = lattice[i, k-1] * self.transition[i, j] * self.emission[j, word_idx]
+                    if prob > max_prob:
+                        max_prob = prob
+                        bp = i
+                lattice[j][k] = max_prob
+                backpointers[j][k] = bp
+
+        # finding best tag sequence
+        tag_seq = []
+        backindex = self.tag2idx['<STOP>']
+        k = n-1
+        while k >= 0:
+            tag_seq.append(self.idx2tag[backindex])
+            backindex = backpointers[backindex][k]
+            k -= 1
+
+        print(sentence)
+        print(tag_seq[::-1])
+
+        return tag_seq[::-1]
+                    
+                    
         
 
     def inference(self, sequence):
@@ -282,10 +319,13 @@ class POSTagger():
             - viterbi
         """
         # Call k beams below
-        k =20
-        beam_search_seq = self.beam_search(sequence, k)
-        
-        return beam_search_seq
+        # k = 20
+        # beam_search_seq = self.beam_search(sequence, k)
+        # return beam_search_seq
+
+        # Call bigram viterbi below
+        bvit_seq = self.bigram_viterbi(sequence)
+        return bvit_seq
         
         
       
@@ -304,7 +344,6 @@ if __name__ == "__main__":
 
     # # Here you can also implement experiments that compare different styles of decoding,
     # # smoothing, n-grams, etc.
-    
     
     evaluate(dev_data, pos_tagger)
     
