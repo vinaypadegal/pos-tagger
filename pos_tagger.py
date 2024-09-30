@@ -9,7 +9,31 @@ from myconstants import *
 
 
 """ Contains the part of speech tagger class. """
+class SuffixTree:
+    def __init__(self):
+        self.suffixes = {}
 
+    def add_word(self, word, tag):
+        """Add word and its tag to the suffix tree."""
+        for i in range(len(word)):
+            suffix = word[i:]
+            if suffix not in self.suffixes:
+                self.suffixes[suffix] = {tag: 1}
+            else:
+                if tag in self.suffixes[suffix]:
+                    self.suffixes[suffix][tag] += 1
+                else:
+                    self.suffixes[suffix][tag] = 1
+
+    def get_suffix_probabilities(self, word):
+        """Get probabilities of tags based on the word's suffix."""
+        for i in range(len(word)):
+            suffix = word[i:]
+            if suffix in self.suffixes:
+                tag_counts = self.suffixes[suffix]
+                total_counts = sum(tag_counts.values())
+                return {tag: count / total_counts for tag, count in tag_counts.items()}
+        return None
 
 def evaluate(data, model):
     """Evaluates the POS model on some sentences and gold tags.
@@ -64,7 +88,6 @@ def evaluate(data, model):
             if len(predictions[i]) != len(tags[i]):
                 print("Error: Predictions and tags have different lengths for i - ", i)
                 flag = 1 
-                print(tags[i][len(tags[i])-1])
         if flag == 1:
             return
     else:
@@ -72,7 +95,7 @@ def evaluate(data, model):
         return
 
     token_acc = sum([1 for i in range(n) for j in range(len(sentences[i])) if tags[i][j] == predictions[i][j]]) / n_tokens
-    # unk_token_acc = sum([1 for i in range(n) for j in range(len(sentences[i])) if tags[i][j] == predictions[i][j] and sentences[i][j] not in model.word2idx.keys()]) / unk_n_tokens
+    unk_token_acc = sum([1 for i in range(n) for j in range(len(sentences[i])) if tags[i][j] == predictions[i][j] and sentences[i][j] not in model.word2idx.keys()]) / unk_n_tokens
     whole_sent_acc = 0
     num_whole_sent = 0
     for k in range(n):
@@ -88,7 +111,7 @@ def evaluate(data, model):
     print("Whole sent acc: {}".format(whole_sent_acc/num_whole_sent))
     print("Mean Probabilities: {}".format(sum(probabilities.values())/n))
     print("Token acc: {}".format(token_acc))
-    # print("Unk token acc: {}".format(unk_token_acc))
+    print("Unk token acc: {}".format(unk_token_acc))
     
     confusion_matrix(pos_tagger.tag2idx, pos_tagger.idx2tag, predictions.values(), tags, 'cm.png')
 
@@ -98,7 +121,8 @@ def evaluate(data, model):
 class POSTagger():
     def __init__(self):
         """Initializes the tagger model parameters and anything else necessary. """
-        pass
+        self.suffix_tree = SuffixTree()
+        
 
     def add_k_smoothing(self, row, k):
         rowsum = sum(row)
@@ -141,12 +165,12 @@ class POSTagger():
                 tag1 = tag_sent[i]
                 tag2 = tag_sent[i+1]
                 bigrams[self.tag2idx[tag1]][self.tag2idx[tag2]] += 1
-        print(bigrams)
+        # print(bigrams)
 
         for i in range(num_tags):
             bigrams[i] = self.add_k_smoothing(bigrams[i], SMOOTHING_K)
 
-        print(bigrams)
+        # print(bigrams)
 
         return bigrams
 
@@ -197,6 +221,31 @@ class POSTagger():
         emissions = emissions / emissions.sum(axis=1)[:, None]
         return emissions
 
+    def get_suffix_emission(self, word):
+        # Get emission probabilities for an unknown word using suffix tree.
+        # This function returns an array of emission probabilities for all tags
+        suffix_probs = self.suffix_tree.get_suffix_probabilities(word)
+        if suffix_probs:
+            # Convert the suffix-based tag probabilities to emission probabilities
+            emission = np.zeros(len(self.all_tags))
+            for tag, prob in suffix_probs.items():
+                emission[self.tag2idx[tag]] = prob
+            return emission
+        else:
+            # If no suffix match, return uniform probability, Note: something better can be done?
+            return np.ones(len(self.all_tags)) / len(self.all_tags)
+        
+    def get_emission_prob(self, word, tag):
+        # Get emission probability for a word-tag pair
+        if word in self.word2idx:
+            # Known word: Use standard emission probabilities
+            emission_prob = self.emission[self.tag2idx[tag], self.word2idx[word]]
+        else:
+            # Unknown word: Use suffix-based emission probabilities
+            suffix_emission = self.get_suffix_emission(word)
+            emission_prob = suffix_emission[self.tag2idx[tag]]
+        
+        return emission_prob
     
 
     def train(self, data):
@@ -213,6 +262,12 @@ class POSTagger():
         self.idx2tag = {v:k for k,v in self.tag2idx.items()}
         self.vocabulary = list(set(word for sentence in data[0] for word in sentence))
         self.word2idx = {self.vocabulary[i]: i for i in range(len(self.vocabulary))}
+
+        # Build the suffix tree
+        for i in range(len(data[0])):
+            for word, tag in zip(data[0][i], data[1][i]):
+                self.suffix_tree.add_word(word, tag)
+        
         self.transition = self.get_bigrams()
         self.emission = self.get_emissions()
 
@@ -225,7 +280,8 @@ class POSTagger():
         n = len(sequence)
         score = 1
         for i in range(1,n):
-            score *= self.transition[self.tag2idx[tags[i-1]],self.tag2idx[tags[i]]] * self.emission[self.tag2idx[tags[i]],self.word2idx.get(sequence[i], -1)]
+            
+            score *= self.transition[self.tag2idx[tags[i-1]],self.tag2idx[tags[i]]] * self.get_emission_prob(sequence[i], tags[i])
         
         return score
     
@@ -246,9 +302,10 @@ class POSTagger():
             for tags, score in beam:
                 last_tag = tags[-1]
 
-                # Find transition * emission probabilities to all next tags
+               
+
                 next_tag_probs = [
-                    (next_tag, self.transition[self.tag2idx[last_tag],self.tag2idx[next_tag]] * self.emission[self.tag2idx[next_tag],self.word2idx.get(sequence[t], -1)])
+                    (next_tag, self.transition[self.tag2idx[last_tag],self.tag2idx[next_tag]] * self.get_emission_prob(sequence[t], next_tag))
                     for next_tag in self.all_tags
                 ]
                 
@@ -282,7 +339,7 @@ class POSTagger():
             - viterbi
         """
         # Call k beams below
-        k =20
+        k = BEAM_K
         beam_search_seq = self.beam_search(sequence, k)
         
         return beam_search_seq
@@ -310,14 +367,14 @@ if __name__ == "__main__":
     
 
     # Predict tags for the test set
-    # test_predictions = []
-    # for sentence in tqdm(test_data):
+    test_predictions = []
+    for sentence in tqdm(test_data):
         
-    #     test_predictions.extend(pos_tagger.inference(sentence)[:-1])
+        test_predictions.extend(pos_tagger.inference(sentence)[:-1])
         
     # # print(len(test_predictions))
     
     # # # # Write them to a file to update the leaderboard
-    # test_predictions = pd.DataFrame(test_predictions)
-    # test_predictions.to_csv("dev2_predictions.csv", index=True,index_label=['id'], header=['tag'],quoting=csv.QUOTE_NONNUMERIC)
+    test_predictions = pd.DataFrame(test_predictions)
+    test_predictions.to_csv("test_y.csv", index=True,index_label=['id'], header=['tag'],quoting=csv.QUOTE_NONNUMERIC)
     
