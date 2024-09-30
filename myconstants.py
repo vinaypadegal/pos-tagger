@@ -21,7 +21,7 @@ INTERPOLATION = 1; LAMBDAS =  None
 SMOOTHING = INTERPOLATION
 
 # NGRAMM
-NGRAMM = 3
+NGRAMM = 2
 
 ## Handle unknown words TnT style
 TNT_UNK = True

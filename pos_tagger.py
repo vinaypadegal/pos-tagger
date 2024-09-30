@@ -9,7 +9,31 @@ from myconstants import *
 
 
 """ Contains the part of speech tagger class. """
+class SuffixTree:
+    def __init__(self):
+        self.suffixes = {}
 
+    def add_word(self, word, tag):
+        """Add word and its tag to the suffix tree."""
+        for i in range(len(word)):
+            suffix = word[i:]
+            if suffix not in self.suffixes:
+                self.suffixes[suffix] = {tag: 1}
+            else:
+                if tag in self.suffixes[suffix]:
+                    self.suffixes[suffix][tag] += 1
+                else:
+                    self.suffixes[suffix][tag] = 1
+
+    def get_suffix_probabilities(self, word):
+        """Get probabilities of tags based on the word's suffix."""
+        for i in range(len(word)):
+            suffix = word[i:]
+            if suffix in self.suffixes:
+                tag_counts = self.suffixes[suffix]
+                total_counts = sum(tag_counts.values())
+                return {tag: count / total_counts for tag, count in tag_counts.items()}
+        return None
 
 def evaluate(data, model):
     """Evaluates the POS model on some sentences and gold tags.
@@ -64,7 +88,6 @@ def evaluate(data, model):
             if len(predictions[i]) != len(tags[i]):
                 print("Error: Predictions and tags have different lengths for i - ", i)
                 flag = 1 
-                print(tags[i][len(tags[i])-1])
         if flag == 1:
             return
     else:
@@ -98,7 +121,8 @@ def evaluate(data, model):
 class POSTagger():
     def __init__(self):
         """Initializes the tagger model parameters and anything else necessary. """
-        pass
+        self.suffix_tree = SuffixTree()
+        
 
     def add_k_smoothing(self, row, k):
         rowsum = sum(row)
@@ -141,10 +165,9 @@ class POSTagger():
                 tag1 = tag_sent[i]
                 tag2 = tag_sent[i+1]
                 bigrams[self.tag2idx[tag1]][self.tag2idx[tag2]] += 1
-
         for i in range(num_tags):
             bigrams[i] = self.add_k_smoothing(bigrams[i], SMOOTHING_K)
-
+            
         return bigrams
 
     
@@ -194,6 +217,33 @@ class POSTagger():
         emissions = emissions / emissions.sum(axis=1)[:, None]
         return emissions
 
+
+    def get_suffix_emission(self, word):
+        # Get emission probabilities for an unknown word using suffix tree.
+        # This function returns an array of emission probabilities for all tags
+        suffix_probs = self.suffix_tree.get_suffix_probabilities(word)
+        if suffix_probs:
+            # Convert the suffix-based tag probabilities to emission probabilities
+            emission = np.zeros(len(self.all_tags))
+            for tag, prob in suffix_probs.items():
+                emission[self.tag2idx[tag]] = prob
+            return emission
+        else:
+            # If no suffix match, return uniform probability, Note: something better can be done?
+            return np.ones(len(self.all_tags)) / len(self.all_tags)
+
+
+    def get_emission_prob(self, word, tag):
+        # Get emission probability for a word-tag pair
+        if word in self.word2idx:
+            # Known word: Use standard emission probabilities
+            emission_prob = self.emission[self.tag2idx[tag], self.word2idx[word]]
+        else:
+            # Unknown word: Use suffix-based emission probabilities
+            suffix_emission = self.get_suffix_emission(word)
+            emission_prob = suffix_emission[self.tag2idx[tag]]
+        
+        return emission_prob
     
 
     def train(self, data):
@@ -210,7 +260,15 @@ class POSTagger():
         self.idx2tag = {v:k for k,v in self.tag2idx.items()}
         self.vocabulary = list(set(word for sentence in data[0] for word in sentence))
         self.word2idx = {self.vocabulary[i]: i for i in range(len(self.vocabulary))}
-        self.transition = self.get_bigrams()
+
+        # Build the suffix tree
+        for i in range(len(data[0])):
+            for word, tag in zip(data[0][i], data[1][i]):
+                self.suffix_tree.add_word(word, tag)
+        
+        self.bigrams = self.get_bigrams()
+        self.trigrams = self.get_trigrams()
+        self.transition = self.trigrams if NGRAMM == 3 else self.bigrams
         self.emission = self.get_emissions()
 
 
@@ -221,8 +279,18 @@ class POSTagger():
         """
         n = len(sequence)
         score = 1
-        for i in range(1,n):
-            score *= self.transition[self.tag2idx[tags[i-1]],self.tag2idx[tags[i]]] * self.emission[self.tag2idx[tags[i]],self.word2idx.get(sequence[i], -1)]
+
+        if (self.transition == self.bigrams).all():
+            for i in range(1,n):
+                score *= self.transition[self.tag2idx[tags[i-1]],self.tag2idx[tags[i]]] * self.get_emission_prob(sequence[i], tags[i])
+
+        elif (self.transition == self.trigrams).all():
+            for i in range(2,n):
+                score *= self.transition[self.tag2idx[tags[i-2]],self.tag2idx[tags[i-1]],self.tag2idx[tags[i]]] * self.get_emission_prob(sequence[i], tags[i])
+        else:
+            print("Transition matrix not defined.")
+            return None
+
         
         return score
     
@@ -231,43 +299,94 @@ class POSTagger():
         
         n = len(sequence)
         
-        # Initialize the beam with the  possible tags for the first word, possible scores
-        beam = [([tag], self.emission[self.tag2idx[tag],self.word2idx.get(sequence[0], -1)]) for tag in self.all_tags]
-        beam = sorted(beam, key=lambda x: x[1], reverse=True)[:k]
+        if (self.transition == self.bigrams).all():
+
+            # print("Beam Search with Bigrams")
+
+            # Initialize the beam with the  possible tags for the first word, possible scores
+            beam = [([tag], self.emission[self.tag2idx[tag],self.word2idx.get(sequence[0], -1)]) for tag in self.all_tags]
+            beam = sorted(beam, key=lambda x: x[1], reverse=True)[:k]
+            
+
+            # For each subsequent word in the sequence, note : n-1 to avoid <STOP> tag
+            for t in range(1, n-1):
+                new_beam = []
+                
+                # For each tag sequence in the current beam
+                for tags, score in beam:
+                    last_tag = tags[-1]
+
+                
+
+                    next_tag_probs = [
+                        (next_tag, self.transition[self.tag2idx[last_tag],self.tag2idx[next_tag]] * self.get_emission_prob(sequence[t], next_tag))
+                        for next_tag in self.all_tags
+                    ]
+                    
+                    # Choose the top k next tags based on transition * emission probabilities
+                    best_next_tags = sorted(next_tag_probs, key=lambda x: x[1], reverse=True)[:k]
+                    
+                    # Calculate scores for the top k next tags by multiplying with the current score 
+                    for next_tag, total_prob in best_next_tags:
+                        
+                        # Create new tag sequence
+                        new_tags = tags + [next_tag]
+                        new_beam.append((new_tags, score * total_prob))
+
+                # At every step keep only the k best tag sequences
+                beam = sorted(new_beam, key=lambda x: x[1], reverse=True)[:k]
+
+            # Return the tag sequence with the highest probability
+            highest_prob = beam[0][0]
+            highest_prob.append('<STOP>') # Appending stop as the last tag of the sentence
+            return highest_prob
+        
+        elif (self.transition == self.trigrams).all():
+
+            # print("Beam Search with Trigrams")
+
+            beam = [([tag1, tag2], self.get_emission_prob(sequence[0], tag1) * self.get_emission_prob(sequence[1], tag2))
+                for tag1 in self.all_tags for tag2 in self.all_tags]
+            beam = sorted(beam, key=lambda x: x[1], reverse=True)[:k]
+
+            # For each subsequent word in the sequence, apply trigram transitions
+            for t in range(2, n-1):
+                new_beam = []
+
+                for tags, score in beam:
+                    last_tag1 = tags[-2]
+                    last_tag2 = tags[-1]
+
+                    next_tag_probs = [
+                        (next_tag, self.transition[self.tag2idx[last_tag1], self.tag2idx[last_tag2], self.tag2idx[next_tag]] * self.get_emission_prob(sequence[t], next_tag))
+                        for next_tag in self.all_tags
+                    ]
+
+                    best_next_tags = sorted(next_tag_probs, key=lambda x: x[1], reverse=True)[:k]
+
+                    for next_tag, total_prob in best_next_tags:
+                        new_tags = tags + [next_tag]
+                        new_beam.append((new_tags, score * total_prob))
+
+                beam = sorted(new_beam, key=lambda x: x[1], reverse=True)[:k]
+
+            highest_prob = beam[0][0]
+            highest_prob.append('<STOP>')
+            return highest_prob
+        
+        else:
+            print("Transition matrix not defined.")
+            return None
         
 
-        # For each subsequent word in the sequence, note : n-1 to avoid <STOP> tag
-        for t in range(1, n-1):
-            new_beam = []
-            
-            # For each tag sequence in the current beam
-            for tags, score in beam:
-                last_tag = tags[-1]
+    def viterbi(self, sentence):
+        if NGRAMM == 2:
+            return self.bigram_viterbi(sentence)
+        elif NGRAMM == 3:
+            print("Not yet implemented")
+        else:
+            print("We'll see about the extra credit")
 
-                # Find transition * emission probabilities to all next tags
-                next_tag_probs = [
-                    (next_tag, self.transition[self.tag2idx[last_tag],self.tag2idx[next_tag]] * self.emission[self.tag2idx[next_tag],self.word2idx.get(sequence[t], -1)])
-                    for next_tag in self.all_tags
-                ]
-                
-                # Choose the top k next tags based on transition * emission probabilities
-                best_next_tags = sorted(next_tag_probs, key=lambda x: x[1], reverse=True)[:k]
-                
-                # Calculate scores for the top k next tags by multiplying with the current score 
-                for next_tag, total_prob in best_next_tags:
-                    
-                    # Create new tag sequence
-                    new_tags = tags + [next_tag]
-                    new_beam.append((new_tags, score * total_prob))
-
-            # At every step keep only the k best tag sequences
-            beam = sorted(new_beam, key=lambda x: x[1], reverse=True)[:k]
-
-        # Return the tag sequence with the highest probability
-        highest_prob = beam[0][0]
-        highest_prob.append('<STOP>') # Appending stop as the last tag of the sentence
-        return highest_prob
-    
 
     def bigram_viterbi(self, sentence):
         n = len(sentence)
@@ -275,16 +394,15 @@ class POSTagger():
         lattice = np.zeros([num_tags, n])
         backpointers = np.zeros([num_tags, n], dtype=int)
 
-        # settings the first column to be <START> with probability 1
-        lattice[self.tag2idx['O'], 0] = 1
+        # setting the first column to be <START> with probability 1
+        lattice[self.tag2idx['O'], 0] = 1.0
 
         for k in range(1, n):
             for j in range(num_tags):
-                max_prob = -1
+                max_prob = -1.0
                 bp = -1
                 for i in range(num_tags):
-                    word_idx = self.word2idx.get(sentence[k], -1)
-                    prob = lattice[i, k-1] * self.transition[i, j] * self.emission[j, word_idx]
+                    prob = lattice[i, k-1] * self.transition[i, j] * self.get_emission_prob(sentence[k], self.idx2tag[j])
                     if prob > max_prob:
                         max_prob = prob
                         bp = i
@@ -300,12 +418,7 @@ class POSTagger():
             backindex = backpointers[backindex][k]
             k -= 1
 
-        print(sentence)
-        print(tag_seq[::-1])
-
         return tag_seq[::-1]
-                    
-                    
         
 
     def inference(self, sequence):
@@ -319,13 +432,13 @@ class POSTagger():
             - viterbi
         """
         # Call k beams below
-        # k = 20
+        # k = BEAM_K
         # beam_search_seq = self.beam_search(sequence, k)
         # return beam_search_seq
-
+    
         # Call bigram viterbi below
-        bvit_seq = self.bigram_viterbi(sequence)
-        return bvit_seq
+        viterbi = self.viterbi(sequence)
+        return viterbi
         
         
       
@@ -349,14 +462,14 @@ if __name__ == "__main__":
     
 
     # Predict tags for the test set
-    # test_predictions = []
-    # for sentence in tqdm(test_data):
+    test_predictions = []
+    for sentence in tqdm(test_data):
         
-    #     test_predictions.extend(pos_tagger.inference(sentence)[:-1])
+        test_predictions.extend(pos_tagger.inference(sentence)[:-1])
         
     # # print(len(test_predictions))
     
     # # # # Write them to a file to update the leaderboard
-    # test_predictions = pd.DataFrame(test_predictions)
-    # test_predictions.to_csv("dev2_predictions.csv", index=True,index_label=['id'], header=['tag'],quoting=csv.QUOTE_NONNUMERIC)
+    test_predictions = pd.DataFrame(test_predictions)
+    test_predictions.to_csv("test_y.csv", index=True,index_label=['id'], header=['tag'],quoting=csv.QUOTE_NONNUMERIC)
     
