@@ -268,7 +268,9 @@ class POSTagger():
             for word, tag in zip(data[0][i], data[1][i]):
                 self.suffix_tree.add_word(word, tag)
         
-        self.transition = self.get_bigrams()
+        self.bigrams = self.get_bigrams()
+        self.trigrams = self.get_trigrams()
+        self.transition = self.trigrams if NGRAMM == 3 else self.bigrams
         self.emission = self.get_emissions()
 
 
@@ -279,9 +281,18 @@ class POSTagger():
         """
         n = len(sequence)
         score = 1
-        for i in range(1,n):
-            
-            score *= self.transition[self.tag2idx[tags[i-1]],self.tag2idx[tags[i]]] * self.get_emission_prob(sequence[i], tags[i])
+
+        if (self.transition == self.bigrams).all():
+            for i in range(1,n):
+                score *= self.transition[self.tag2idx[tags[i-1]],self.tag2idx[tags[i]]] * self.get_emission_prob(sequence[i], tags[i])
+
+        elif (self.transition == self.trigrams).all():
+            for i in range(2,n):
+                score *= self.transition[self.tag2idx[tags[i-2]],self.tag2idx[tags[i-1]],self.tag2idx[tags[i]]] * self.get_emission_prob(sequence[i], tags[i])
+        else:
+            print("Transition matrix not defined.")
+            return None
+
         
         return score
     
@@ -289,43 +300,86 @@ class POSTagger():
         
         n = len(sequence)
         
-        # Initialize the beam with the  possible tags for the first word, possible scores
-        beam = [([tag], self.emission[self.tag2idx[tag],self.word2idx.get(sequence[0], -1)]) for tag in self.all_tags]
-        beam = sorted(beam, key=lambda x: x[1], reverse=True)[:k]
-        
+        if (self.transition == self.bigrams).all():
 
-        # For each subsequent word in the sequence, note : n-1 to avoid <STOP> tag
-        for t in range(1, n-1):
-            new_beam = []
+            # print("Beam Search with Bigrams")
+
+            # Initialize the beam with the  possible tags for the first word, possible scores
+            beam = [([tag], self.emission[self.tag2idx[tag],self.word2idx.get(sequence[0], -1)]) for tag in self.all_tags]
+            beam = sorted(beam, key=lambda x: x[1], reverse=True)[:k]
             
-            # For each tag sequence in the current beam
-            for tags, score in beam:
-                last_tag = tags[-1]
 
-               
+            # For each subsequent word in the sequence, note : n-1 to avoid <STOP> tag
+            for t in range(1, n-1):
+                new_beam = []
+                
+                # For each tag sequence in the current beam
+                for tags, score in beam:
+                    last_tag = tags[-1]
 
-                next_tag_probs = [
-                    (next_tag, self.transition[self.tag2idx[last_tag],self.tag2idx[next_tag]] * self.get_emission_prob(sequence[t], next_tag))
-                    for next_tag in self.all_tags
-                ]
                 
-                # Choose the top k next tags based on transition * emission probabilities
-                best_next_tags = sorted(next_tag_probs, key=lambda x: x[1], reverse=True)[:k]
-                
-                # Calculate scores for the top k next tags by multiplying with the current score 
-                for next_tag, total_prob in best_next_tags:
+
+                    next_tag_probs = [
+                        (next_tag, self.transition[self.tag2idx[last_tag],self.tag2idx[next_tag]] * self.get_emission_prob(sequence[t], next_tag))
+                        for next_tag in self.all_tags
+                    ]
                     
-                    # Create new tag sequence
-                    new_tags = tags + [next_tag]
-                    new_beam.append((new_tags, score * total_prob))
+                    # Choose the top k next tags based on transition * emission probabilities
+                    best_next_tags = sorted(next_tag_probs, key=lambda x: x[1], reverse=True)[:k]
+                    
+                    # Calculate scores for the top k next tags by multiplying with the current score 
+                    for next_tag, total_prob in best_next_tags:
+                        
+                        # Create new tag sequence
+                        new_tags = tags + [next_tag]
+                        new_beam.append((new_tags, score * total_prob))
 
-            # At every step keep only the k best tag sequences
-            beam = sorted(new_beam, key=lambda x: x[1], reverse=True)[:k]
+                # At every step keep only the k best tag sequences
+                beam = sorted(new_beam, key=lambda x: x[1], reverse=True)[:k]
 
-        # Return the tag sequence with the highest probability
-        highest_prob = beam[0][0]
-        highest_prob.append('<STOP>') # Appending stop as the last tag of the sentence
-        return highest_prob
+            # Return the tag sequence with the highest probability
+            highest_prob = beam[0][0]
+            highest_prob.append('<STOP>') # Appending stop as the last tag of the sentence
+            return highest_prob
+        
+        elif (self.transition == self.trigrams).all():
+
+            # print("Beam Search with Trigrams")
+
+            beam = [([tag1, tag2], self.get_emission_prob(sequence[0], tag1) * self.get_emission_prob(sequence[1], tag2))
+                for tag1 in self.all_tags for tag2 in self.all_tags]
+            beam = sorted(beam, key=lambda x: x[1], reverse=True)[:k]
+
+            # For each subsequent word in the sequence, apply trigram transitions
+            for t in range(2, n-1):
+                new_beam = []
+
+                for tags, score in beam:
+                    last_tag1 = tags[-2]
+                    last_tag2 = tags[-1]
+
+                    next_tag_probs = [
+                        (next_tag, self.transition[self.tag2idx[last_tag1], self.tag2idx[last_tag2], self.tag2idx[next_tag]] * self.get_emission_prob(sequence[t], next_tag))
+                        for next_tag in self.all_tags
+                    ]
+
+                    best_next_tags = sorted(next_tag_probs, key=lambda x: x[1], reverse=True)[:k]
+
+                    for next_tag, total_prob in best_next_tags:
+                        new_tags = tags + [next_tag]
+                        new_beam.append((new_tags, score * total_prob))
+
+                beam = sorted(new_beam, key=lambda x: x[1], reverse=True)[:k]
+
+            highest_prob = beam[0][0]
+            highest_prob.append('<STOP>')
+            return highest_prob
+        
+        else:
+            print("Transition matrix not defined.")
+            return None
+
+
         
 
     def inference(self, sequence):
