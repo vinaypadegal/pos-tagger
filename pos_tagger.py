@@ -5,6 +5,7 @@ from utils import *
 
 import sys
 import csv
+import math
 from myconstants import *
 
 
@@ -214,7 +215,10 @@ class POSTagger():
                 tag = sentence_tags[j]
                 emissions[self.tag2idx[tag]][self.word2idx[word]] += 1
 
-        emissions = emissions / emissions.sum(axis=1)[:, None]
+        # emissions = emissions / emissions.sum(axis=1)[:, None]
+        for i in range(num_tags):
+            emissions[i] = self.add_k_smoothing(emissions[i], EMISSION_K)
+
         return emissions
 
 
@@ -227,6 +231,8 @@ class POSTagger():
             emission = np.zeros(len(self.all_tags))
             for tag, prob in suffix_probs.items():
                 emission[self.tag2idx[tag]] = prob
+
+            emission = self.add_k_smoothing(emission, EMISSION_K)
             return emission
         else:
             # If no suffix match, return uniform probability, Note: something better can be done?
@@ -394,15 +400,19 @@ class POSTagger():
         lattice = np.zeros([num_tags, n])
         backpointers = np.zeros([num_tags, n], dtype=int)
 
-        # setting the first column to be <START> with probability 1
-        lattice[self.tag2idx['O'], 0] = 1.0
+        start_idx = self.tag2idx['O']
 
-        for k in range(1, n):
+        # all tag sequences must start with <START>
+        for j in range(num_tags):
+            lattice[j][1] = math.log(self.transition[start_idx][j]) + math.log(self.get_emission_prob(sentence[1], self.idx2tag[j]))
+            backpointers[j][1] = start_idx
+
+        for k in range(2, n):
             for j in range(num_tags):
-                max_prob = -1.0
+                max_prob = -float('inf')
                 bp = -1
                 for i in range(num_tags):
-                    prob = lattice[i, k-1] * self.transition[i, j] * self.get_emission_prob(sentence[k], self.idx2tag[j])
+                    prob = lattice[i, k-1] + math.log(self.transition[i, j]) + math.log(self.get_emission_prob(sentence[k], self.idx2tag[j]))
                     if prob > max_prob:
                         max_prob = prob
                         bp = i
@@ -419,6 +429,8 @@ class POSTagger():
             k -= 1
 
         return tag_seq[::-1]
+
+        
         
 
     def inference(self, sequence):
@@ -436,7 +448,7 @@ class POSTagger():
         # beam_search_seq = self.beam_search(sequence, k)
         # return beam_search_seq
     
-        # Call bigram viterbi below
+        # Call viterbi below
         viterbi = self.viterbi(sequence)
         return viterbi
         

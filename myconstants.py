@@ -8,6 +8,7 @@ EPSILON = 1e-100
 
 ## smoothing constants
 SMOOTHING_K = 0.6
+EMISSION_K = 0.01
 
 ### Inference Types ###
 GREEDY = 0
