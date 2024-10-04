@@ -389,7 +389,7 @@ class POSTagger():
         if NGRAMM == 2:
             return self.bigram_viterbi(sentence)
         elif NGRAMM == 3:
-            print("Not yet implemented")
+            return self.trigram_viterbi(sentence)
         else:
             print("We'll see about the extra credit")
 
@@ -425,6 +425,53 @@ class POSTagger():
         k = n-1
         while k >= 0:
             tag_seq.append(self.idx2tag[backindex])
+            backindex = backpointers[backindex][k]
+            k -= 1
+
+        return tag_seq[::-1]
+
+
+    def trigram_viterbi(self, sentence):
+        n = len(sentence)
+        num_tags = len(self.all_tags)
+        lattice = np.zeros([num_tags * num_tags, n])
+        backpointers = np.zeros([num_tags * num_tags, n], dtype=int)
+
+        start_idx = self.tag2idx['O']
+        start = (start_idx * num_tags) + start_idx
+
+        # all tag sequences must start with <START><START>
+        start_t_idx = num_tags * self.tag2idx['O']  # index where tag combination is <start>, <t>
+        for j in range(0, num_tags - 1):
+            lattice[start_t_idx + j][1] = math.log(self.transition[start_idx, start_idx, j]) + math.log(self.get_emission_prob(sentence[1], self.idx2tag[j]))
+            backpointers[start_t_idx + j][1] = start
+
+        for k in range(2, n):
+            for j in range(num_tags * num_tags):
+                prev = j // num_tags
+                cur = j % num_tags
+                max_prob = -float('inf')
+                bp = -1
+                for i in range(prev, num_tags * num_tags, num_tags):
+                    if lattice[i, k-1] == 0:
+                        continue
+                    prevprev = i // num_tags
+                    prob = lattice[i, k-1] + math.log(self.transition[prevprev, prevprev, cur]) + math.log(self.get_emission_prob(sentence[k], self.idx2tag[cur]))
+                    if prob > max_prob:
+                        max_prob = prob
+                        bp = i
+                lattice[j][k] = max_prob
+                backpointers[j][k] = bp
+
+        # finding best tag sequence
+        tag_seq = []
+        stop_idx = self.tag2idx['<STOP>']
+        backindex = np.argmax(lattice[:, n-1][stop_idx:num_tags*num_tags:num_tags])
+        backindex = stop_idx + (backindex * num_tags)
+        k = n-1
+        while k >= 0:
+            cur = backindex % num_tags
+            tag_seq.append(self.idx2tag[cur])
             backindex = backpointers[backindex][k]
             k -= 1
 
