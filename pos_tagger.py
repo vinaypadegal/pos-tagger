@@ -6,33 +6,37 @@ from utils import *
 import sys
 import csv
 from myconstants import *
+from collections import defaultdict
 
 
 """ Contains the part of speech tagger class. """
 class SuffixTree:
     def __init__(self):
         self.suffixes = {}
+        self.min_suffix_length = 2
+        self.min_frequency = 5
 
     def add_word(self, word, tag):
         """Add word and its tag to the suffix tree."""
-        for i in range(len(word)):
+        word_length = len(word)
+        for i in range(word_length - self.min_suffix_length + 1):
             suffix = word[i:]
             if suffix not in self.suffixes:
-                self.suffixes[suffix] = {tag: 1}
-            else:
-                if tag in self.suffixes[suffix]:
-                    self.suffixes[suffix][tag] += 1
-                else:
-                    self.suffixes[suffix][tag] = 1
+                self.suffixes[suffix] = defaultdict(int)
+            self.suffixes[suffix][tag] += 1
 
     def get_suffix_probabilities(self, word):
         """Get probabilities of tags based on the word's suffix."""
-        for i in range(len(word)):
+        word_length = len(word)
+        for i in range(word_length - self.min_suffix_length + 1):
             suffix = word[i:]
             if suffix in self.suffixes:
-                tag_counts = self.suffixes[suffix]
-                total_counts = sum(tag_counts.values())
-                return {tag: count / total_counts for tag, count in tag_counts.items()}
+                total_counts = sum(self.suffixes[suffix].values())
+                if total_counts >= self.min_frequency:
+                    weight = len(suffix)
+                    weighted_counts = {tag: count * weight for tag, count in self.suffixes[suffix].items()}
+                    total_weighted_counts = sum(weighted_counts.values())
+                    return {tag: count / total_weighted_counts for tag, count in weighted_counts.items()}
         return None
 
 def evaluate(data, model):
