@@ -7,33 +7,37 @@ import sys
 import csv
 import math
 from myconstants import *
+from collections import defaultdict
 
 
 """ Contains the part of speech tagger class. """
 class SuffixTree:
     def __init__(self):
         self.suffixes = {}
+        self.min_suffix_length = 2
+        self.min_frequency = 5
 
     def add_word(self, word, tag):
         """Add word and its tag to the suffix tree."""
-        for i in range(len(word)):
+        word_length = len(word)
+        for i in range(word_length - self.min_suffix_length + 1):
             suffix = word[i:]
             if suffix not in self.suffixes:
-                self.suffixes[suffix] = {tag: 1}
-            else:
-                if tag in self.suffixes[suffix]:
-                    self.suffixes[suffix][tag] += 1
-                else:
-                    self.suffixes[suffix][tag] = 1
+                self.suffixes[suffix] = defaultdict(int)
+            self.suffixes[suffix][tag] += 1
 
     def get_suffix_probabilities(self, word):
         """Get probabilities of tags based on the word's suffix."""
-        for i in range(len(word)):
+        word_length = len(word)
+        for i in range(word_length - self.min_suffix_length + 1):
             suffix = word[i:]
             if suffix in self.suffixes:
-                tag_counts = self.suffixes[suffix]
-                total_counts = sum(tag_counts.values())
-                return {tag: count / total_counts for tag, count in tag_counts.items()}
+                total_counts = sum(self.suffixes[suffix].values())
+                if total_counts >= self.min_frequency:
+                    weight = len(suffix)
+                    weighted_counts = {tag: count * weight for tag, count in self.suffixes[suffix].items()}
+                    total_weighted_counts = sum(weighted_counts.values())
+                    return {tag: count / total_weighted_counts for tag, count in weighted_counts.items()}
         return None
 
 def evaluate(data, model):
@@ -119,10 +123,42 @@ def evaluate(data, model):
     return whole_sent_acc/num_whole_sent, token_acc, sum(probabilities.values())/n
 
 
+def test_eval(data, model):
+    print("Evaluating on test set.")
+    processes = 4
+    sentences = data
+    n = len(sentences)
+    k = n//processes
+    predictions = {i:None for i in range(n)}
+         
+    start = time.time()
+    pool = Pool(processes=processes)
+    res = []
+    for i in range(0, n, k):
+        res.append(pool.apply_async(infer_sentences, [model, sentences[i:i+k], i]))
+    ans = [r.get(timeout=None) for r in res]
+    predictions = dict()
+    for a in ans:
+        predictions.update(a)
+    # Make the predicitions into a single array and in every setence remove the <STOP> tag
+    final_predictions = []
+    for i in range(n):
+        if predictions[i] is not None:
+            predictions[i] = predictions[i][:-1]
+            final_predictions.extend(predictions[i])
+    
+    print(f"test Runtime: {(time.time()-start)/60} minutes.")
+    return final_predictions
+
+
 class POSTagger():
     def __init__(self):
         """Initializes the tagger model parameters and anything else necessary. """
         self.suffix_tree = SuffixTree()
+        if SMOOTHING == INTERPOLATION:
+            self.smoothing = 'interpolation'
+        elif SMOOTHING == ADD_K:
+            self.smoothing = 'add_k'
         
 
     def add_k_smoothing(self, row, k):
@@ -133,6 +169,47 @@ class POSTagger():
 
     def add_1_smoothing(self, row):
          return self.add_k_smoothing(row, 1)
+    
+    def get_smoothed_transition_probs(self, lambdas=LAMBDAS):
+
+        smoothed_transition_probs = np.zeros_like(self.transition)
+        num_tags = len(self.all_tags)
+
+        # Set default lambdas if not provided
+        if lambdas is None:
+            if NGRAMM == 3:
+                lambdas = [0.1, 0.3, 0.6]  # Default weights for trigram model
+            elif NGRAMM == 2:
+                lambdas = [0.2, 0.8]  # Default weights for bigram model
+
+        # Handle trigram case
+        if NGRAMM == 3:
+            for i in range(num_tags):
+                for j in range(num_tags):
+                    for k in range(num_tags):
+                        p_trigram = self.trigrams[i,j,k]
+                        p_bigram = self.bigrams[j,k]
+                        p_unigram = self.unigrams[k]
+
+                        # Compute interpolated probability using lambdas
+                        smoothed_prob = lambdas[2] * p_trigram + lambdas[1] * p_bigram + lambdas[0] * p_unigram
+
+                        smoothed_transition_probs[i,j,k] = smoothed_prob
+
+        # Handle bigram case
+        elif NGRAMM == 2:
+            for i in range(num_tags):
+                for j in range(num_tags):
+                    p_bigram = self.bigrams[i,j]
+                    p_unigram = self.unigrams[j] 
+
+                    # Compute interpolated probability using lambdas
+                    smoothed_prob = lambdas[1] * p_bigram + lambdas[0] * p_unigram
+
+                    smoothed_transition_probs[i,j] = smoothed_prob
+
+        return smoothed_transition_probs
+
     
     
     def get_unigrams(self):
@@ -147,7 +224,13 @@ class POSTagger():
             for tag in tag_sent:
                 unigrams[self.tag2idx[tag]] += 1
         
-        unigrams = self.add_k_smoothing(unigrams, SMOOTHING_K)
+
+        if self.smoothing == 'add_k':
+            unigrams = self.add_k_smoothing(unigrams, SMOOTHING_K)
+    
+        elif self.smoothing == 'interpolation':
+            unigrams = unigrams / unigrams.sum()
+        
         return unigrams
 
 
@@ -166,8 +249,14 @@ class POSTagger():
                 tag1 = tag_sent[i]
                 tag2 = tag_sent[i+1]
                 bigrams[self.tag2idx[tag1]][self.tag2idx[tag2]] += 1
-        for i in range(num_tags):
-            bigrams[i] = self.add_k_smoothing(bigrams[i], SMOOTHING_K)
+        
+        if self.smoothing == 'add_k':
+            for i in range(num_tags):
+                bigrams[i] = self.add_k_smoothing(bigrams[i], SMOOTHING_K)
+
+        elif self.smoothing == 'interpolation':
+            for i in range(num_tags):
+                bigrams[i] = bigrams[i] / (bigrams[i].sum() + EPSILON)
             
         return bigrams
 
@@ -188,9 +277,15 @@ class POSTagger():
                 tag3 = tag_sent[i+2]
                 trigrams[self.tag2idx[tag1]][self.tag2idx[tag2]][self.tag2idx[tag3]] += 1
 
-        for i in range(num_tags):
-            for j in range(num_tags):
-                trigrams[i][j] = self.add_k_smoothing(trigrams[i][j], SMOOTHING_K)
+        if self.smoothing == 'add_k':
+            for i in range(num_tags):
+                for j in range(num_tags):
+                    trigrams[i][j] = self.add_k_smoothing(trigrams[i][j], SMOOTHING_K)
+        
+        elif self.smoothing == 'interpolation':
+            for i in range(num_tags):
+                for j in range(num_tags):
+                    trigrams[i][j] = trigrams[i][j] / (trigrams[i][j].sum() + EPSILON)
 
         return trigrams
     
@@ -272,10 +367,14 @@ class POSTagger():
             for word, tag in zip(data[0][i], data[1][i]):
                 self.suffix_tree.add_word(word, tag)
         
+        self.unigrams = self.get_unigrams()
         self.bigrams = self.get_bigrams()
         self.trigrams = self.get_trigrams()
         self.transition = self.trigrams if NGRAMM == 3 else self.bigrams
         self.emission = self.get_emissions()
+
+        if self.smoothing == 'interpolation':
+            self.transition = self.get_smoothed_transition_probs() # Interpolated transition probabilities
 
 
 
@@ -286,11 +385,11 @@ class POSTagger():
         n = len(sequence)
         score = 1
 
-        if (self.transition == self.bigrams).all():
+        if NGRAMM == 2:
             for i in range(1,n):
                 score *= self.transition[self.tag2idx[tags[i-1]],self.tag2idx[tags[i]]] * self.get_emission_prob(sequence[i], tags[i])
 
-        elif (self.transition == self.trigrams).all():
+        elif NGRAMM == 3:
             for i in range(2,n):
                 score *= self.transition[self.tag2idx[tags[i-2]],self.tag2idx[tags[i-1]],self.tag2idx[tags[i]]] * self.get_emission_prob(sequence[i], tags[i])
         else:
@@ -305,7 +404,7 @@ class POSTagger():
         
         n = len(sequence)
         
-        if (self.transition == self.bigrams).all():
+        if NGRAMM == 2:
 
             # print("Beam Search with Bigrams")
 
@@ -347,7 +446,7 @@ class POSTagger():
             highest_prob.append('<STOP>') # Appending stop as the last tag of the sentence
             return highest_prob
         
-        elif (self.transition == self.trigrams).all():
+        elif NGRAMM == 3:
 
             # print("Beam Search with Trigrams")
 
@@ -490,14 +589,25 @@ class POSTagger():
             - decoding with beam search
             - viterbi
         """
+        if INFERENCE == BEAM:
         # Call k beams below
-        # k = BEAM_K
-        # beam_search_seq = self.beam_search(sequence, k)
-        # return beam_search_seq
-    
-        # Call viterbi below
-        viterbi = self.viterbi(sequence)
-        return viterbi
+            k = BEAM_K
+            beam_search_seq = self.beam_search(sequence, k)
+            return beam_search_seq
+
+        elif INFERENCE == VITERBI:
+            # Call viterbi below
+            viterbi = self.viterbi(sequence)
+            return viterbi
+        
+        elif INFERENCE == GREEDY:
+            # Call greedy below
+            beam_search_seq = self.beam_search(sequence, 1)
+            return beam_search_seq
+        
+        else:
+            print("Inference method not defined.")
+            return None
         
         
       
@@ -518,15 +628,11 @@ if __name__ == "__main__":
     # # smoothing, n-grams, etc.
     
     evaluate(dev_data, pos_tagger)
-    
 
-    # Predict tags for the test set
-    test_predictions = []
-    for sentence in tqdm(test_data):
-        
-        test_predictions.extend(pos_tagger.inference(sentence)[:-1])
-        
-    # # print(len(test_predictions))
+    test_predictions = test_eval(test_data, pos_tagger)
+
+    
+    # print(len(test_predictions))
     
     # # # # Write them to a file to update the leaderboard
     test_predictions = pd.DataFrame(test_predictions)
