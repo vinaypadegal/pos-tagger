@@ -7,14 +7,14 @@ CAPITALIZATION = True
 EPSILON = 1e-100
 
 ## smoothing constants
-SMOOTHING_K = 0.6
-EMISSION_K = 0.01
+SMOOTHING_K = 1e-10
+EMISSION_K = 1e-9
 
 ### Inference Types ###
 GREEDY = 0
-BEAM = 1; BEAM_K = 2
+BEAM = 1; BEAM_K = 3
 VITERBI = 2
-INFERENCE = VITERBI
+INFERENCE = BEAM
 
 ### Smoothing Types ###
 LAPLACE = 0; LAPLACE_FACTOR = .2
@@ -24,7 +24,7 @@ SMOOTHING = ADD_K
 
 
 # NGRAMM
-NGRAMM = 2
+NGRAMM = 3
 
 ## Handle unknown words TnT style
 TNT_UNK = True

@@ -9,6 +9,9 @@ import math
 from myconstants import *
 from collections import defaultdict
 
+# SMOOTHING_K = 1e-10
+# EMISSION_K = 1e-10
+
 
 """ Contains the part of speech tagger class. """
 class SuffixTree:
@@ -503,7 +506,7 @@ class POSTagger():
 
         # all tag sequences must start with <START>
         for j in range(num_tags):
-            lattice[j][1] = math.log(self.transition[start_idx][j]) + math.log(self.get_emission_prob(sentence[1], self.idx2tag[j]))
+            lattice[j][1] = np.log(self.transition[start_idx][j]) + np.log(self.get_emission_prob(sentence[1], self.idx2tag[j]))
             backpointers[j][1] = start_idx
 
         for k in range(2, n):
@@ -511,7 +514,7 @@ class POSTagger():
                 max_prob = -float('inf')
                 bp = -1
                 for i in range(num_tags):
-                    prob = lattice[i, k-1] + math.log(self.transition[i, j]) + math.log(self.get_emission_prob(sentence[k], self.idx2tag[j]))
+                    prob = lattice[i, k-1] + np.log(self.transition[i, j]) + np.log(self.get_emission_prob(sentence[k], self.idx2tag[j]))
                     if prob > max_prob:
                         max_prob = prob
                         bp = i
@@ -528,52 +531,50 @@ class POSTagger():
             k -= 1
 
         return tag_seq[::-1]
-
+    
 
     def trigram_viterbi(self, sentence):
         n = len(sentence)
         num_tags = len(self.all_tags)
-        lattice = np.zeros([num_tags * num_tags, n])
-        backpointers = np.zeros([num_tags * num_tags, n], dtype=int)
-
-        start_idx = self.tag2idx['O']
-        start = (start_idx * num_tags) + start_idx
+        lattice = np.full([num_tags*num_tags, n], -np.inf)
+        backpointers = np.zeros([num_tags * num_tags, n], dtype=int) 
 
         # all tag sequences must start with <START><START>
-        start_t_idx = num_tags * self.tag2idx['O']  # index where tag combination is <start>, <t>
-        for j in range(0, num_tags - 1):
-            lattice[start_t_idx + j][1] = math.log(self.transition[start_idx, start_idx, j]) + math.log(self.get_emission_prob(sentence[1], self.idx2tag[j]))
-            backpointers[start_t_idx + j][1] = start
+        start_idx = self.tag2idx['O']
+        start_start_idx = (start_idx * num_tags) + start_idx
+        lattice[start_start_idx, 0] = 0
 
-        for k in range(2, n):
+        # iterating through columns 1 to n (word 2 to word n)
+        for k in range(1, n):
+            # iterating through each <t1, t2> tag pair for current column
             for j in range(num_tags * num_tags):
-                prev = j // num_tags
-                cur = j % num_tags
-                max_prob = -float('inf')
-                bp = -1
-                for i in range(prev, num_tags * num_tags, num_tags):
-                    if lattice[i, k-1] == 0:
-                        continue
-                    prevprev = i // num_tags
-                    prob = lattice[i, k-1] + math.log(self.transition[prevprev, prevprev, cur]) + math.log(self.get_emission_prob(sentence[k], self.idx2tag[cur]))
-                    if prob > max_prob:
-                        max_prob = prob
-                        bp = i
-                lattice[j][k] = max_prob
-                backpointers[j][k] = bp
+                t1, t2 = j // num_tags, j % num_tags 
+                # calculate transition probabilities from all t for transition[t, t1, t2]
+                trans_probs = np.log(self.transition[:, t1, t2])
+                # calculate emission probability value for <word, t2> pair
+                emission_prob = np.log(self.get_emission_prob(sentence[k], self.idx2tag[t2]))
+                # filter all entries with tag pair = <t, t1> from previous column of lattice
+                total_probs = lattice[t1::num_tags, k-1] + trans_probs + emission_prob
+
+                max_prob = np.max(total_probs)
+                max_t_idx = np.argmax(total_probs)
+
+                lattice[j, k] = max_prob
+                backpointers[j, k] = max_t_idx*num_tags + t1
 
         # finding best tag sequence
         tag_seq = []
         stop_idx = self.tag2idx['<STOP>']
-        backindex = np.argmax(lattice[:, n-1][stop_idx:num_tags*num_tags:num_tags])
+        backindex = np.argmax(lattice[:, n-1][stop_idx::num_tags])
         backindex = stop_idx + (backindex * num_tags)
         k = n-1
         while k >= 0:
-            cur = backindex % num_tags
-            tag_seq.append(self.idx2tag[cur])
+            t2 = backindex % num_tags
+            tag_seq.append(self.idx2tag[t2])
             backindex = backpointers[backindex][k]
             k -= 1
 
+        # print("Completed")
         return tag_seq[::-1]
 
         
@@ -620,21 +621,13 @@ if __name__ == "__main__":
     dev_data = load_data("data/dev_x.csv", "data/dev_y.csv")
     test_data = load_data("data/test_x.csv")
     dev2_data = load_data("data/dev2_x.csv", "data/dev2_y.csv")
+
     pos_tagger.train(train_data)
-
-    # # Experiment with your decoder using greedy decoding, beam search, viterbi...
-
-    # # Here you can also implement experiments that compare different styles of decoding,
-    # # smoothing, n-grams, etc.
-    
+            
     evaluate(dev_data, pos_tagger)
 
     test_predictions = test_eval(test_data, pos_tagger)
-
     
-    # print(len(test_predictions))
-    
-    # # # # Write them to a file to update the leaderboard
     test_predictions = pd.DataFrame(test_predictions)
     test_predictions.to_csv("test_y.csv", index=True,index_label=['id'], header=['tag'],quoting=csv.QUOTE_NONNUMERIC)
     
