@@ -622,14 +622,16 @@ if __name__ == "__main__":
     dev2_data = load_data("data/dev2_x.csv", "data/dev2_y.csv")
     pos_tagger.train(train_data)
 
-    # # Experiment with your decoder using greedy decoding, beam search, viterbi...
-
-    # # Here you can also implement experiments that compare different styles of decoding,
-    # # smoothing, n-grams, etc.
-    
     evaluate(dev_data, pos_tagger)
 
-    test_predictions = test_eval(test_data, pos_tagger)
+    pos_tagger_test = POSTagger()
+
+    #combine both dev and train data and then train 
+    pos_tagger_test.train([train_data[0]+dev_data[0], train_data[1]+dev_data[1]])
+    
+    
+    #Pass test tager to the test function
+    test_predictions = test_eval(test_data, pos_tagger_test)
 
     
     # print(len(test_predictions))
