@@ -379,25 +379,33 @@ class POSTagger():
 
 
     def sequence_probability(self, sequence, tags):
-        """Computes the probability of a tagged sequence given the emission/transition
-        probabilities.
-        """
         n = len(sequence)
-        score = 1
+        log_score = 0  # Initialize log score to 0, equivalent to a probability of 1
 
         if NGRAMM == 2:
-            for i in range(1,n):
-                score *= self.transition[self.tag2idx[tags[i-1]],self.tag2idx[tags[i]]] * self.get_emission_prob(sequence[i], tags[i])
+            # Add log of emission probability for the first tag
+            log_score += np.log(self.get_emission_prob(sequence[0], tags[0]))
+            
+            # Add the log of bigram transition and emission probabilities for the rest
+            for i in range(1, n):
+                log_score += np.log(self.transition[self.tag2idx[tags[i-1]], self.tag2idx[tags[i]]]) + np.log(self.get_emission_prob(sequence[i], tags[i]))
 
         elif NGRAMM == 3:
-            for i in range(2,n):
-                score *= self.transition[self.tag2idx[tags[i-2]],self.tag2idx[tags[i-1]],self.tag2idx[tags[i]]] * self.get_emission_prob(sequence[i], tags[i])
+            # Add log of emission probabilities for the first two tags and bigram transition
+            log_score += np.log(self.get_emission_prob(sequence[0], tags[0])) + np.log(self.get_emission_prob(sequence[1], tags[1])) + np.log(self.bigrams[self.tag2idx[tags[0]], self.tag2idx[tags[1]]])
+            
+            # Add the log of trigram transition and emission probabilities for the rest
+            for i in range(2, n):
+                log_score += np.log(self.transition[self.tag2idx[tags[i-2]], self.tag2idx[tags[i-1]], self.tag2idx[tags[i]]]) + np.log(self.get_emission_prob(sequence[i], tags[i]))
         else:
             print("Transition matrix not defined.")
             return None
 
-        
-        return score
+        # If the log score is -inf, return 0, else return the exponent of the log score
+        if np.isneginf(log_score):
+            return 0
+        else:
+            return np.exp(log_score)
     
 
     def beam_search(self, sequence, k=20):
