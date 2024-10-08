@@ -30,3 +30,7 @@ NGRAMM = 3
 TNT_UNK = True
 UNK_C = 10 #words with count to be considered
 UNK_M = 10 #substring length to be considered
+
+
+# Set to True to run the model on the test set
+RUN_TEST = True

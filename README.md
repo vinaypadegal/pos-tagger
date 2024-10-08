@@ -18,6 +18,10 @@ Default setting ie setting under which best results were obtained:
 
 SMOOTHING = ADD_K and NGRAMM = 2 and INFERENCE = VITERBI 
 
+To run the model on the test set, in constants.py set:
+
+RUN_TEST = True
+
 To run the code:
 
 First ensure that the data is stored in ./data/. 

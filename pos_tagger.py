@@ -625,30 +625,32 @@ class POSTagger():
 
 
 if __name__ == "__main__":
-    # pos_tagger = POSTagger()
+    pos_tagger = POSTagger()
 
     train_data = load_data("data/train_x.csv", "data/train_y.csv")
     dev_data = load_data("data/dev_x.csv", "data/dev_y.csv")
     test_data = load_data("data/test_x.csv")
     dev2_data = load_data("data/dev2_x.csv", "data/dev2_y.csv")
 
-    # pos_tagger.train(train_data)
+    pos_tagger.train(train_data)
 
-    # evaluate(dev_data, pos_tagger)
+    evaluate(dev_data, pos_tagger)
 
-    pos_tagger_test = POSTagger()
+    if RUN_TEST == True:
 
-    #combine both dev and train data and then train 
-    pos_tagger_test.train([train_data[0]+dev_data[0], train_data[1]+dev_data[1]])
-    
-    
-    #Pass test tager to the test function
-    test_predictions = test_eval(test_data, pos_tagger_test)
+        pos_tagger_test = POSTagger()
 
-    
-    # print(len(test_predictions))
-    
-    # # # # Write them to a file to update the leaderboard
-    test_predictions = pd.DataFrame(test_predictions)
-    test_predictions.to_csv("test_y.csv", index=True,index_label=['id'], header=['tag'],quoting=csv.QUOTE_NONNUMERIC)
+        #combine both dev and train data and then train 
+        pos_tagger_test.train([train_data[0]+dev_data[0], train_data[1]+dev_data[1]])
+        
+        
+        #Pass test tager to the test function
+        test_predictions = test_eval(test_data, pos_tagger_test)
+
+        
+        # print(len(test_predictions))
+        
+        # # # # Write them to a file to update the leaderboard
+        test_predictions = pd.DataFrame(test_predictions)
+        test_predictions.to_csv("test_y.csv", index=True,index_label=['id'], header=['tag'],quoting=csv.QUOTE_NONNUMERIC)
     
