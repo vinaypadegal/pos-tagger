@@ -8,11 +8,12 @@ import csv
 import math
 from myconstants import *
 from collections import defaultdict
-np.seterr(divide = 'ignore') 
 
+np.seterr(divide = 'ignore') 
 
 # SMOOTHING_K = 1e-10
 # EMISSION_K = 1e-10
+
 
 
 """ Contains the part of speech tagger class. """
