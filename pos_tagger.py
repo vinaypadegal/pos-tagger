@@ -182,11 +182,12 @@ class POSTagger():
         num_tags = len(self.all_tags)
 
         # Set default lambdas if not provided
-        if lambdas is None:
+        if lambdas is None or len(lambdas) != NGRAMM:
+            print("Using default lambdas for interpolation because none were provided or the length is incorrect.")
             if NGRAMM == 3:
-                lambdas = [0.1, 0.3, 0.6]  # Default weights for trigram model
+                lambdas = [0.05, 0.15, 0.8]  # Default weights for trigram model
             elif NGRAMM == 2:
-                lambdas = [0.2, 0.8]  # Default weights for bigram model
+                lambdas = [0.05, 0.95]  # Default weights for bigram model
 
         # Handle trigram case
         if NGRAMM == 3:
@@ -464,7 +465,7 @@ class POSTagger():
 
             # print("Beam Search with Trigrams")
 
-            beam = [([tag1, tag2], self.get_emission_prob(sequence[0], tag1) * self.get_emission_prob(sequence[1], tag2))
+            beam = [([tag1, tag2], self.get_emission_prob(sequence[0], tag1) * self.get_emission_prob(sequence[1], tag2) * self.bigrams[self.tag2idx[tag1], self.tag2idx[tag2]])
                 for tag1 in self.all_tags for tag2 in self.all_tags]
             beam = sorted(beam, key=lambda x: x[1], reverse=True)[:k]
 
@@ -630,7 +631,24 @@ if __name__ == "__main__":
     train_data = load_data("data/train_x.csv", "data/train_y.csv")
     dev_data = load_data("data/dev_x.csv", "data/dev_y.csv")
     test_data = load_data("data/test_x.csv")
-    dev2_data = load_data("data/dev2_x.csv", "data/dev2_y.csv")
+    dev2_data = load_data("data/dev2_x.csv", "data/dev2_y.csv") 
+
+    
+    
+    
+    pos_tagger.train(train_data)
+
+    # Code for calculating the probabilities of the ground truth tags and the tagged tags
+
+    # count = 0
+    
+    # for sentence in dev_data[0]:
+    #     tagged_prob = pos_tagger.sequence_probability(sentence, pos_tagger.inference(sentence))
+    #     ground_truth_prob = pos_tagger.sequence_probability(sentence, dev_data[1][dev_data[0].index(sentence)])
+    #     if tagged_prob < ground_truth_prob:
+    #         count += 1
+
+    # print("Number of sentences where the ground truth probability is higher than the tagged probability: ", count, " out of ", len(dev_data[0]))
 
     pos_tagger.train(train_data)
 

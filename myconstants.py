@@ -7,8 +7,8 @@ CAPITALIZATION = True
 EPSILON = 1e-100
 
 ## smoothing constants
-SMOOTHING_K = 1e-10
-EMISSION_K = 1e-9
+SMOOTHING_K = 1e-7
+EMISSION_K = 1e-10
 
 ### Inference Types ###
 GREEDY = 0
