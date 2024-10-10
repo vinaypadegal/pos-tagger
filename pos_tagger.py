@@ -633,23 +633,6 @@ if __name__ == "__main__":
     test_data = load_data("data/test_x.csv")
     dev2_data = load_data("data/dev2_x.csv", "data/dev2_y.csv") 
 
-    
-    
-    
-    pos_tagger.train(train_data)
-
-    # Code for calculating the probabilities of the ground truth tags and the tagged tags
-
-    # count = 0
-    
-    # for sentence in dev_data[0]:
-    #     tagged_prob = pos_tagger.sequence_probability(sentence, pos_tagger.inference(sentence))
-    #     ground_truth_prob = pos_tagger.sequence_probability(sentence, dev_data[1][dev_data[0].index(sentence)])
-    #     if tagged_prob < ground_truth_prob:
-    #         count += 1
-
-    # print("Number of sentences where the ground truth probability is higher than the tagged probability: ", count, " out of ", len(dev_data[0]))
-
     pos_tagger.train(train_data)
 
     evaluate(dev_data, pos_tagger)
