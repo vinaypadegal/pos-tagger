@@ -16,9 +16,6 @@ For add_1 smoothing set:
 
 SMOOTHING = ADD_K and SMOOTHING_K = 1
 
-Default setting ie setting under which best results were obtained:
-
-SMOOTHING = ADD_K and NGRAMM = 2 and INFERENCE = VITERBI 
 
 To run the model on the test set, in constants.py set:
 
